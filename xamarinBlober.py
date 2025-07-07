@@ -1,6 +1,7 @@
 import struct
 from pathlib import Path
 import lz4.block
+import sys
 
 BLOB_MAGIC_BYTES = b'XABA'
 COMPRESSED_ASSEMBLY_MAGIC_BYTES = b'XALZ'
@@ -102,7 +103,10 @@ def extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,outDir):
 			with open(assemblyPath,'wb') as assemblyFile:
 				assemblyFile.write(assemblyData)
 
-extractAssembliesBlob('assemblies.blob','assemblies.manifest','out')
+assembliesBlobPath = sys.argv[1]
+assembliesManifestPath = sys.argv[2]
+assembliesOutPath = sys.argv[3]
+extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,assembliesOutPath)
 
 
 
