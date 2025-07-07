@@ -2,10 +2,15 @@ import struct
 from pathlib import Path
 import lz4.block
 import sys
+import xxhash
 
 BLOB_MAGIC_BYTES = b'XABA'
 COMPRESSED_ASSEMBLY_MAGIC_BYTES = b'XALZ'
 supported_versions = [1]
+
+def print_assemblies(assemblies):
+	for assembly in assemblies:
+		print(f'name:{assembly.name} | lec:{assembly.localStoreIndex} | offset:{assembly.dataOffset} | size:{assembly.dataSize} | hash32:{assembly.hash32}')
 
 def error(s):
 	print(s)
@@ -13,6 +18,9 @@ def error(s):
 
 def unpackUInt32LE(data):
 	return struct.unpack('<I', data)[0]
+
+def packUInt32LE(i):
+	return struct.pack('<I',i)
 
 def readUInt32(f):
 	return struct.unpack('<I', f.read(4))[0]
@@ -103,10 +111,56 @@ def extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,outDir):
 			with open(assemblyPath,'wb') as assemblyFile:
 				assemblyFile.write(assemblyData)
 
-assembliesBlobPath = sys.argv[1]
-assembliesManifestPath = sys.argv[2]
-assembliesOutPath = sys.argv[3]
-extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,assembliesOutPath)
+def rebuildAssembliesBlob(assembliesBlobOutPath, assembliesManifestPath, assembliesDirPath):
+	assembliesIndexToName = readAssembliesManifest(assembliesManifestPath)
+	assembliesCount = len(assembliesIndexToName)
+	assembliesDir = Path(assembliesDirPath)
+	
+	with open(assembliesBlobOutPath,'wb') as assembliesBlobOut:
+		assembliesBlobOut.write(BLOB_MAGIC_BYTES) # magic bytes
+		assembliesBlobOut.write(packUInt32LE(supported_versions[0])) # version
+		assembliesBlobOut.write(packUInt32LE(assembliesCount)) # LocalEntryCount
+		assembliesBlobOut.write(packUInt32LE(assembliesCount)) # GlobalEntryCount
+		assembliesBlobOut.write(packUInt32LE(0)) # store id
+		
+		currentOffset = 20 + 64 * assembliesCount
+		for index in assembliesIndexToName:
+			assemblyFile = assembliesDir / f'{assembliesIndexToName[index]}.dll'
+			assemblyFileSize = assemblyFile.stat().st_size
+			assembliesBlobOut.write(packUInt32LE(currentOffset)) # DataOffset
+			assembliesBlobOut.write(packUInt32LE(assemblyFileSize)) # DataSize
+			assembliesBlobOut.write(packUInt32LE(0)) # DebugDataOffset
+			assembliesBlobOut.write(packUInt32LE(0)) # DebugDataSize
+			assembliesBlobOut.write(packUInt32LE(0)) # ConfigDataOffset
+			assembliesBlobOut.write(packUInt32LE(0)) # ConfigDataSize
+			currentOffset += assemblyFileSize
+		
+		for index in assembliesIndexToName:
+			assembliesBlobOut.write(xxhash.xxh32(assembliesIndexToName[index]).digest()[::-1] + b'\x00\x00\x00\x00') # 32 bit hash (padded with 4 bytes of zeroes)
+			assembliesBlobOut.write(packUInt32LE(index)) # MappingIndex
+			assembliesBlobOut.write(packUInt32LE(index)) # LocalStoreIndex
+			assembliesBlobOut.write(packUInt32LE(0)) # StoreID
+		
+		for index in assembliesIndexToName:
+			assembliesBlobOut.write(xxhash.xxh64(assembliesIndexToName[index]).digest()[::-1]) # 64 bit hash
+			assembliesBlobOut.write(packUInt32LE(index)) # MappingIndex
+			assembliesBlobOut.write(packUInt32LE(index)) # LocalStoreIndex
+			assembliesBlobOut.write(packUInt32LE(0)) # StoreID
+		
+		for index in assembliesIndexToName:
+			assemblyFile = assembliesDir / f'{assembliesIndexToName[index]}.dll'
+			with open(assemblyFile,'rb') as f:
+				assembliesBlobOut.write(f.read())
+
+mode = sys.argv[1]
+assembliesBlobPath = sys.argv[2]
+assembliesManifestPath = sys.argv[3]
+assembliesDirPath = sys.argv[4]
+
+if mode == 'unpack':
+	extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,assembliesDirPath)
+elif mode == 'pack':
+	rebuildAssembliesBlob(assembliesBlobPath,assembliesManifestPath,assembliesDirPath)
 
 
 
