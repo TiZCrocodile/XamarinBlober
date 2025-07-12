@@ -28,6 +28,10 @@ def readUInt32(f):
 def readUInt64(f):
 	return struct.unpack('<Q', f.read(8))[0]
 
+def writeDataToFile(filePath,data):
+	with open(filePath,'wb') as f:
+		f.write(data)
+
 class AssemblyStoreAssembly():
 	def __init__(self,localStoreIndex,dataOffset,dataSize,debugDataOffset,debugDataSize,configDataOffset,configDataSize):
 		self.name = None
@@ -102,14 +106,29 @@ def extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,outDir):
 		for AssemblyIndex, assembly in enumerate(assemblies):
 			assembliesBlob.seek(assembly.dataOffset)
 			assemblyData = assembliesBlob.read(assembly.dataSize)
+			
+			# compressed assembly, need to decompress it first
 			if assemblyData.startswith(COMPRESSED_ASSEMBLY_MAGIC_BYTES):
-				# compressed assembly, need to decompress it first
 				decompressedAssemblySize = unpackUInt32LE(assemblyData[8:12])
 				assemblyData = lz4.block.decompress(assemblyData[12:],uncompressed_size=decompressedAssemblySize)
+			
 			assemblyName = assembliesIndexToName[AssemblyIndex]
 			assemblyPath = outDir / f'{assemblyName}.dll'
-			with open(assemblyPath,'wb') as assemblyFile:
-				assemblyFile.write(assemblyData)
+			writeDataToFile(assemblyPath, assemblyData)
+			
+			# there is a pdb file
+			if assembly.debugDataOffset != 0 and assembly.debugDataSize != 0:
+				assembliesBlob.seek(assembly.debugDataOffset)
+				assemblyDebugData = assembliesBlob.read(assembly.debugDataSize)
+				assemblyDebugPath = outDir / f'{assemblyName}.pdb'
+				writeDataToFile(assemblyDebugPath, assemblyDebugData)
+			
+			# there is a config file
+			if assembly.configDataOffset != 0 and assembly.configDataSize != 0:
+				assembliesBlob.seek(assembly.configDataOffset)
+				assemblyConfigData = assembliesBlob.read(assembly.configDataSize)
+				assemblyConfigPath = outDir / f'{assemblyName}.dll.config'
+				writeDataToFile(assemblyConfigPath, assemblyConfigData)
 
 def rebuildAssembliesBlob(assembliesBlobOutPath, assembliesManifestPath, assembliesDirPath):
 	assembliesIndexToName = readAssembliesManifest(assembliesManifestPath)
@@ -125,15 +144,37 @@ def rebuildAssembliesBlob(assembliesBlobOutPath, assembliesManifestPath, assembl
 		
 		currentOffset = 20 + 64 * assembliesCount
 		for index in assembliesIndexToName:
+			# dll file
+			# need to compress the file first
+			# output to .dll.compress maybe
+			# then calculate offset&size and write to blob at the end
 			assemblyFile = assembliesDir / f'{assembliesIndexToName[index]}.dll'
 			assemblyFileSize = assemblyFile.stat().st_size
 			assembliesBlobOut.write(packUInt32LE(currentOffset)) # DataOffset
 			assembliesBlobOut.write(packUInt32LE(assemblyFileSize)) # DataSize
-			assembliesBlobOut.write(packUInt32LE(0)) # DebugDataOffset
-			assembliesBlobOut.write(packUInt32LE(0)) # DebugDataSize
-			assembliesBlobOut.write(packUInt32LE(0)) # ConfigDataOffset
-			assembliesBlobOut.write(packUInt32LE(0)) # ConfigDataSize
 			currentOffset += assemblyFileSize
+			
+			# pdb file
+			assemblyDebugFile = assembliesDir / f'{assembliesIndexToName[index]}.pdb'
+			if assemblyDebugFile.is_file():
+				assemblyDebugFileSize = assemblyDebugFile.stat().st_size
+				assembliesBlobOut.write(packUInt32LE(currentOffset)) # DebugDataOffset
+				assembliesBlobOut.write(packUInt32LE(assemblyDebugFileSize)) # DebugDataSize
+				currentOffset += assemblyDebugFileSize
+			else:
+				assembliesBlobOut.write(packUInt32LE(0)) # DebugDataOffset
+				assembliesBlobOut.write(packUInt32LE(0)) # DebugDataSize
+			
+			# config file
+			assemblyConfigFile = assembliesDir / f'{assembliesIndexToName[index]}.dll.config'
+			if assemblyConfigFile.is_file():
+				assemblyConfigFileSize = assemblyConfigFile.stat().st_size
+				assembliesBlobOut.write(packUInt32LE(currentOffset)) # ConfigDataOffset
+				assembliesBlobOut.write(packUInt32LE(assemblyConfigFileSize)) # ConfigDataSize
+				currentOffset += assemblyConfigFileSize
+			else:
+				assembliesBlobOut.write(packUInt32LE(0)) # ConfigDataOffset
+				assembliesBlobOut.write(packUInt32LE(0)) # ConfigDataSize
 		
 		for index in assembliesIndexToName:
 			assembliesBlobOut.write(xxhash.xxh32(assembliesIndexToName[index]).digest()[::-1] + b'\x00\x00\x00\x00') # 32 bit hash (padded with 4 bytes of zeroes)
@@ -148,9 +189,26 @@ def rebuildAssembliesBlob(assembliesBlobOutPath, assembliesManifestPath, assembl
 			assembliesBlobOut.write(packUInt32LE(0)) # StoreID
 		
 		for index in assembliesIndexToName:
+			# dll file
 			assemblyFile = assembliesDir / f'{assembliesIndexToName[index]}.dll'
 			with open(assemblyFile,'rb') as f:
 				assembliesBlobOut.write(f.read())
+			
+			# config file
+			assemblyConfigFile = assembliesDir / f'{assembliesIndexToName[index]}.dll.config'
+			if assemblyConfigFile.is_file():
+				with open(assemblyConfigFile,'rb') as f:
+					assembliesBlobOut.write(f.read())
+			
+			# pdb file
+			assemblyDebugFile = assembliesDir / f'{assembliesIndexToName[index]}.pdb'
+			if assemblyDebugFile.is_file():
+				with open(assemblyDebugFile,'rb') as f:
+					assembliesBlobOut.write(f.read())
+
+print()
+if len(sys.argv) < 5:
+	error('usage: xamarinBlober.py (unpack | pack) path/to/assemblies.blob path/to/assemblies.manifest path/to/output_input_folder')
 
 mode = sys.argv[1]
 assembliesBlobPath = sys.argv[2]
@@ -159,11 +217,9 @@ assembliesDirPath = sys.argv[4]
 
 if mode == 'unpack':
 	extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,assembliesDirPath)
+	print(f'Extracting to {assembliesDirPath} from {assembliesBlobPath} ...')
 elif mode == 'pack':
 	rebuildAssembliesBlob(assembliesBlobPath,assembliesManifestPath,assembliesDirPath)
+	print(f'Rebuilding from {assembliesDirPath} to {assembliesBlobPath} ...')
 
-
-
-
-
-
+print('Done.')

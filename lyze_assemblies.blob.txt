@@ -1,0 +1,28 @@
+[20 bytes (blob header)]
+[4] magic bytes 'XABA'
+[4] version 1 (0x00000001)
+[4] LocalEntryCount (assemblies count)
+[4] GlobalEntryCount (same shit i don't know)
+[4] StoreId (if its zero then we need to read the hash entries)
+
+[24 bytes x LocalEntryCount (assembly header)]
+[4] DataOffset (offset of first byte of 'XALZ' magic bytes)
+[4] DataSize (number of bytes of the assembly)
+[4] DebugDataOffset (idk)
+[4] DebugDataSize (idk)
+[4] ConfigDataOffset (idk)
+[4] ConfigDataSize (idk)
+
+[20 bytes x GlobalEntryCount (32 bit hash entry)]
+[8] 32 bit hash (4 bytes padded zeroes are added)
+[4] MappingIndex (looks the same as LocalStoreIndex)
+[4] LocalStoreIndex (index of the assembly)
+[4] StoreID (idk)
+
+[20 bytes x GlobalEntryCount (64 bit hash entry)]
+[8] 64 bit hash
+[4] MappingIndex (looks the same as LocalStoreIndex)
+[4] LocalStoreIndex (index of the assembly)
+[4] StoreID (idk)
+
+[assembly binary -> 'XALZ' magic bytes in case of a compressed one]
