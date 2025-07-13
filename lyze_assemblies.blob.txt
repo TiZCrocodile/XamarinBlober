@@ -25,4 +25,8 @@
 [4] LocalStoreIndex (index of the assembly)
 [4] StoreID (idk)
 
-[assembly binary -> 'XALZ' magic bytes in case of a compressed one]
+[assembly binary]
+[4] magic bytes 'XALZ'
+[4] descriptor index (ignore)
+[4] decompressed length
+[rest of the bytes is the block that needs to be decompress]
