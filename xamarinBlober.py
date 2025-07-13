@@ -3,6 +3,7 @@ from pathlib import Path
 import lz4.block
 import sys
 import xxhash
+import json
 
 BLOB_MAGIC_BYTES = b'XABA'
 COMPRESSED_ASSEMBLY_MAGIC_BYTES = b'XALZ'
@@ -101,18 +102,24 @@ def extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,outDir):
 	
 	outDir = Path(outDir)
 	outDir.mkdir(parents=True, exist_ok=True)
+	assembliesCompressedDir = Path(outDir) / 'compressed'
+	assembliesCompressedDir.mkdir(parents=True, exist_ok=True)
+	assembliesNameToDescriptorIndex = {}
 	
 	with open(assembliesBlobPath,'rb') as assembliesBlob:
 		for AssemblyIndex, assembly in enumerate(assemblies):
+			assemblyName = assembliesIndexToName[AssemblyIndex]
+			
 			assembliesBlob.seek(assembly.dataOffset)
 			assemblyData = assembliesBlob.read(assembly.dataSize)
 			
 			# compressed assembly, need to decompress it first
 			if assemblyData.startswith(COMPRESSED_ASSEMBLY_MAGIC_BYTES):
+				descriptorIndex = unpackUInt32LE(assemblyData[4:8])
 				decompressedAssemblySize = unpackUInt32LE(assemblyData[8:12])
 				assemblyData = lz4.block.decompress(assemblyData[12:],uncompressed_size=decompressedAssemblySize)
+				assembliesNameToDescriptorIndex[assemblyName] = descriptorIndex
 			
-			assemblyName = assembliesIndexToName[AssemblyIndex]
 			assemblyPath = outDir / f'{assemblyName}.dll'
 			writeDataToFile(assemblyPath, assemblyData)
 			
@@ -129,11 +136,22 @@ def extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,outDir):
 				assemblyConfigData = assembliesBlob.read(assembly.configDataSize)
 				assemblyConfigPath = outDir / f'{assemblyName}.dll.config'
 				writeDataToFile(assemblyConfigPath, assemblyConfigData)
+	
+	# write descriptorIndex to json
+	assemblyNameToDescriptorIndexJsonPath = assembliesCompressedDir / 'descriptor_index.json'
+	with open(assemblyNameToDescriptorIndexJsonPath,'w') as f:
+		json.dump(assembliesNameToDescriptorIndex,f)
 
 def rebuildAssembliesBlob(assembliesBlobOutPath, assembliesManifestPath, assembliesDirPath):
 	assembliesIndexToName = readAssembliesManifest(assembliesManifestPath)
 	assembliesCount = len(assembliesIndexToName)
 	assembliesDir = Path(assembliesDirPath)
+	
+	assembliesCompressedDir = Path(assembliesDir) / 'compressed'
+	assembliesCompressedDir.mkdir(parents=True, exist_ok=True)
+	assemblyNameToDescriptorIndexJsonPath = assembliesCompressedDir / 'descriptor_index.json'
+	with open(assemblyNameToDescriptorIndexJsonPath,'r') as f:
+		assembliesNameToDescriptorIndex = json.load(f)
 	
 	with open(assembliesBlobOutPath,'wb') as assembliesBlobOut:
 		assembliesBlobOut.write(BLOB_MAGIC_BYTES) # magic bytes
@@ -144,15 +162,22 @@ def rebuildAssembliesBlob(assembliesBlobOutPath, assembliesManifestPath, assembl
 		
 		currentOffset = 20 + 64 * assembliesCount
 		for index in assembliesIndexToName:
-			# dll file
-			# need to compress the file first
-			# output to .dll.compress maybe
-			# then calculate offset&size and write to blob at the end
-			assemblyFile = assembliesDir / f'{assembliesIndexToName[index]}.dll'
-			assemblyFileSize = assemblyFile.stat().st_size
+			# dll compressed file
+			assemblyFilePath = assembliesDir / f'{assembliesIndexToName[index]}.dll'
+			with open(assemblyFilePath,'rb') as assemblyFile:
+				assemblyFileData = assemblyFile.read()
+				compressedData = b'XALZ' # compressed file magic bytes
+				assemblyDescriptorIndex = assembliesNameToDescriptorIndex[assembliesIndexToName[index]]
+				compressedData += struct.pack('<I', assemblyDescriptorIndex) # descriptor index (ignore or idk)
+				compressedData += lz4.block.compress(assemblyFileData,mode='high_compression')
+				assemblyCompressedFilePath = assembliesCompressedDir / f'{assemblyFilePath.stem}.lz4'
+				with open(assemblyCompressedFilePath,'wb') as assemblyCompressedFile:
+					assemblyCompressedFile.write(compressedData)
+				compressedDataSize = len(compressedData)
+			
 			assembliesBlobOut.write(packUInt32LE(currentOffset)) # DataOffset
-			assembliesBlobOut.write(packUInt32LE(assemblyFileSize)) # DataSize
-			currentOffset += assemblyFileSize
+			assembliesBlobOut.write(packUInt32LE(compressedDataSize)) # DataSize
+			currentOffset += compressedDataSize
 			
 			# pdb file
 			assemblyDebugFile = assembliesDir / f'{assembliesIndexToName[index]}.pdb'
@@ -190,8 +215,8 @@ def rebuildAssembliesBlob(assembliesBlobOutPath, assembliesManifestPath, assembl
 		
 		for index in assembliesIndexToName:
 			# dll file
-			assemblyFile = assembliesDir / f'{assembliesIndexToName[index]}.dll'
-			with open(assemblyFile,'rb') as f:
+			compressedAssemblyFilePath = assembliesCompressedDir / f'{assembliesIndexToName[index]}.lz4'
+			with open(compressedAssemblyFilePath,'rb') as f:
 				assembliesBlobOut.write(f.read())
 			
 			# config file

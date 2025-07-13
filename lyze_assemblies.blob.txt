@@ -25,7 +25,7 @@
 [4] LocalStoreIndex (index of the assembly)
 [4] StoreID (idk)
 
-[assembly binary]
+[assembly binary - important lz4 version 1.1.11 (in c#) 1.1.0 (in python)]
 [4] magic bytes 'XALZ'
 [4] descriptor index (ignore)
 [4] decompressed length
