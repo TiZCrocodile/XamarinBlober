@@ -2,7 +2,6 @@ import struct
 from pathlib import Path
 import lz4.block
 import sys
-import xxhash
 import json
 
 BLOB_MAGIC_BYTES = b'XABA'
@@ -50,16 +49,20 @@ class AssemblyStoreAssembly():
 
 def readAssembliesManifest(filePath):
 	assembliesIndexToName = {}
+	assembliesHash32ToIndex = {}
+	assembliesHash64ToIndex = {}
 	
 	with open(filePath,'r') as f:
 		for line in f.read().split('\n')[1:]: # skip first line (Hash 32     Hash 64             Blob ID  Blob idx  Name)
 			if line:
 				# hash32,hash64,blobId,blobIndex,name
-				_,_,_,blobIndex,name = line.split()
-				blobIndex = int(blobIndex)
+				hash32,hash64,_,blobIndex,name = line.split()
+				hash32,hash64,blobIndex = int(hash32,16),int(hash64,16),int(blobIndex)
 				assembliesIndexToName[blobIndex] = name
+				assembliesHash32ToIndex[hash32] = blobIndex
+				assembliesHash64ToIndex[hash64] = blobIndex
 	
-	return assembliesIndexToName
+	return assembliesIndexToName,assembliesHash32ToIndex,assembliesHash64ToIndex
 
 def readAssembliesBlobMetadata(filePath):
 	assemblies = []
@@ -98,7 +101,7 @@ def readAssembliesBlobMetadata(filePath):
 
 def extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,outDir):
 	assemblies = readAssembliesBlobMetadata(assembliesBlobPath)
-	assembliesIndexToName = readAssembliesManifest(assembliesManifestPath)
+	assembliesIndexToName,_,_ = readAssembliesManifest(assembliesManifestPath)
 	
 	outDir = Path(outDir)
 	outDir.mkdir(parents=True, exist_ok=True)
@@ -143,7 +146,7 @@ def extractAssembliesBlob(assembliesBlobPath,assembliesManifestPath,outDir):
 		json.dump(assembliesNameToDescriptorIndex,f)
 
 def rebuildAssembliesBlob(assembliesBlobOutPath, assembliesManifestPath, assembliesDirPath):
-	assembliesIndexToName = readAssembliesManifest(assembliesManifestPath)
+	assembliesIndexToName,assembliesHash32ToIndex,assembliesHash64ToIndex = readAssembliesManifest(assembliesManifestPath)
 	assembliesCount = len(assembliesIndexToName)
 	assembliesDir = Path(assembliesDirPath)
 	
@@ -201,16 +204,16 @@ def rebuildAssembliesBlob(assembliesBlobOutPath, assembliesManifestPath, assembl
 				assembliesBlobOut.write(packUInt32LE(0)) # ConfigDataOffset
 				assembliesBlobOut.write(packUInt32LE(0)) # ConfigDataSize
 		
-		for index in assembliesIndexToName:
-			assembliesBlobOut.write(xxhash.xxh32(assembliesIndexToName[index]).digest()[::-1] + b'\x00\x00\x00\x00') # 32 bit hash (padded with 4 bytes of zeroes)
-			assembliesBlobOut.write(packUInt32LE(index)) # MappingIndex
-			assembliesBlobOut.write(packUInt32LE(index)) # LocalStoreIndex
+		for hash32 in sorted(assembliesHash32ToIndex):
+			assembliesBlobOut.write(hash32.to_bytes(4,'little') + b'\x00\x00\x00\x00') # 32 bit hash (padded with 4 bytes of zeroes)
+			assembliesBlobOut.write(packUInt32LE(assembliesHash32ToIndex[hash32])) # MappingIndex
+			assembliesBlobOut.write(packUInt32LE(assembliesHash32ToIndex[hash32])) # LocalStoreIndex
 			assembliesBlobOut.write(packUInt32LE(0)) # StoreID
 		
-		for index in assembliesIndexToName:
-			assembliesBlobOut.write(xxhash.xxh64(assembliesIndexToName[index]).digest()[::-1]) # 64 bit hash
-			assembliesBlobOut.write(packUInt32LE(index)) # MappingIndex
-			assembliesBlobOut.write(packUInt32LE(index)) # LocalStoreIndex
+		for hash64 in sorted(assembliesHash64ToIndex):
+			assembliesBlobOut.write(hash64.to_bytes(8,'little')) # 64 bit hash
+			assembliesBlobOut.write(packUInt32LE(assembliesHash64ToIndex[hash64])) # MappingIndex
+			assembliesBlobOut.write(packUInt32LE(assembliesHash64ToIndex[hash64])) # LocalStoreIndex
 			assembliesBlobOut.write(packUInt32LE(0)) # StoreID
 		
 		for index in assembliesIndexToName:

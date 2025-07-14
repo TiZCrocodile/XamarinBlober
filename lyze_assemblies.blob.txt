@@ -13,13 +13,13 @@
 [4] ConfigDataOffset (idk)
 [4] ConfigDataSize (idk)
 
-[20 bytes x GlobalEntryCount (32 bit hash entry)]
+[20 bytes x GlobalEntryCount (32 bit hash entry), turns out its ordered by the lowest hash value to the highest]
 [8] 32 bit hash (4 bytes padded zeroes are added)
 [4] MappingIndex (looks the same as LocalStoreIndex)
 [4] LocalStoreIndex (index of the assembly)
 [4] StoreID (idk)
 
-[20 bytes x GlobalEntryCount (64 bit hash entry)]
+[20 bytes x GlobalEntryCount (64 bit hash entry), same, lowest hash first]
 [8] 64 bit hash
 [4] MappingIndex (looks the same as LocalStoreIndex)
 [4] LocalStoreIndex (index of the assembly)
