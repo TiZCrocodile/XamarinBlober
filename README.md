@@ -1,7 +1,7 @@
 # XamarinBlober
 XamarinBlober is a tool for unpacking and repacking `assemblies.blob` files used in Xamarin applications.
 
-Unlike [pyxamstore](https://github.com/USDev/XamarinStoreExtractor), XamarinBlober **successfully repacks** the blob, and also **extracts additional useful files** such as:
+Unlike [pyxamstore](https://github.com/jakev/pyxamstore), XamarinBlober **successfully repacks** the blob, and also **extracts additional useful files** such as:
 
 - `.pdb` (debug symbols)
 - `.dll.config` (configuration files)
@@ -24,4 +24,4 @@ python xamarinBlober.py pack assemblies.blob assemblies.manifest extracted_files
 - `lyze_assemblies.blob.txt` – Notes and structure analysis of the `assemblies.blob` format.
 
 ## Credits
-Thanks to [pyxamstore](https://github.com/USDev/XamarinStoreExtractor) repository I was able to jump directly to the source code and understand faster the format.
+Thanks to [pyxamstore](https://github.com/jakev/pyxamstore) repository I was able to jump directly to the source code and understand faster the format.
