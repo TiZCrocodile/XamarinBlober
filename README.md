@@ -24,4 +24,4 @@ python xamarinBlober.py pack assemblies.blob assemblies.manifest extracted_files
 - `lyze_assemblies.blob.txt` – Notes and structure analysis of the `assemblies.blob` format.
 
 ## Credits
-Thanks to pyxamstore repository I was able to jump directly to the source code and understand faster the format.
+Thanks to [pyxamstore](https://github.com/USDev/XamarinStoreExtractor) repository I was able to jump directly to the source code and understand faster the format.
